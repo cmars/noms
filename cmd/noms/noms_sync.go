@@ -17,6 +17,7 @@ import (
 	"github.com/attic-labs/noms/go/util/profile"
 	"github.com/attic-labs/noms/go/util/status"
 	humanize "github.com/dustin/go-humanize"
+	"github.com/juju/errors"
 	flag "github.com/juju/gnuflag"
 )
 
@@ -79,7 +80,13 @@ func runSync(args []string) int {
 	}()
 
 	sourceRef := types.NewRef(sourceObj)
-	sinkRef, sinkExists := sinkDataset.MaybeHeadRef()
+	var sinkExists bool
+	sinkRef, err := sinkDataset.HeadRef()
+	if errors.IsNotFound(err) {
+		sinkExists = true
+	} else if err != nil {
+		d.PanicIfError(err)
+	}
 	nonFF := false
 	err = d.Try(func() {
 		defer profile.MaybeStartProfile().Stop()

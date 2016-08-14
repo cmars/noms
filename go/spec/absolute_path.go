@@ -5,9 +5,10 @@
 package spec
 
 import (
-	"errors"
 	"fmt"
 	"regexp"
+
+	"github.com/juju/errors"
 
 	"github.com/attic-labs/noms/go/d"
 	"github.com/attic-labs/noms/go/datas"
@@ -69,22 +70,25 @@ func NewAbsolutePath(str string) (AbsolutePath, error) {
 	return AbsolutePath{hash: h, dataset: dataset, path: path}, nil
 }
 
-func (p AbsolutePath) Resolve(db datas.Database) (val types.Value) {
+func (p AbsolutePath) Resolve(db datas.Database) (types.Value, error) {
+	var val types.Value
+	var err error
 	if len(p.dataset) > 0 {
-		var ok bool
-		if val, ok = db.MaybeHead(p.dataset); !ok {
+		if val, err = db.Head(p.dataset); errors.IsNotFound(err) {
 			val = nil
+		} else if err != nil {
+			return nil, errors.Trace(err)
 		}
 	} else if !p.hash.IsEmpty() {
 		val = db.ReadValue(p.hash)
 	} else {
-		d.Chk.Fail("Unreachable")
+		return nil, errors.Errorf("unreachable")
 	}
 
 	if val != nil && p.path != nil {
 		val = p.path.Resolve(val)
 	}
-	return
+	return val, nil
 }
 
 func (p AbsolutePath) String() (str string) {

@@ -5,7 +5,7 @@
 package datas
 
 import (
-	"errors"
+	"github.com/juju/errors"
 
 	"github.com/attic-labs/noms/go/chunks"
 	"github.com/attic-labs/noms/go/d"
@@ -30,30 +30,20 @@ func newDatabaseCommon(cch *cachingChunkHaver, vs *types.ValueStore, rt chunks.R
 	return databaseCommon{ValueStore: vs, cch: cch, rt: rt, rootRef: rt.Root()}
 }
 
-func (ds *databaseCommon) MaybeHead(datasetID string) (types.Struct, bool) {
-	if r, ok := ds.MaybeHeadRef(datasetID); ok {
-		return r.TargetValue(ds).(types.Struct), true
+func (ds *databaseCommon) Head(datasetID string) (types.Struct, error) {
+	r, err := ds.HeadRef(datasetID)
+	if err != nil {
+		return types.Struct{}, errors.Trace(err)
 	}
-	return types.Struct{}, false
+	return r.TargetValue(ds).(types.Struct), nil
 }
 
-func (ds *databaseCommon) MaybeHeadRef(datasetID string) (types.Ref, bool) {
-	if r, ok := ds.Datasets().MaybeGet(types.String(datasetID)); ok {
-		return r.(types.Ref), true
+func (ds *databaseCommon) HeadRef(datasetID string) (types.Ref, error) {
+	r, ok := ds.Datasets().MaybeGet(types.String(datasetID))
+	if !ok {
+		return types.Ref{}, errors.NotFoundf(`Database %q has no Head.`, datasetID)
 	}
-	return types.Ref{}, false
-}
-
-func (ds *databaseCommon) Head(datasetID string) types.Struct {
-	c, ok := ds.MaybeHead(datasetID)
-	d.Chk.True(ok, "Database \"%s\" has no Head.", datasetID)
-	return c
-}
-
-func (ds *databaseCommon) HeadRef(datasetID string) types.Ref {
-	r, ok := ds.MaybeHeadRef(datasetID)
-	d.Chk.True(ok, "Database \"%s\" has no Head.", datasetID)
-	return r
+	return r.(types.Ref), nil
 }
 
 func (ds *databaseCommon) Datasets() types.Map {

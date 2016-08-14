@@ -16,6 +16,7 @@ import (
 	"github.com/attic-labs/noms/go/dataset"
 	"github.com/attic-labs/noms/go/hash"
 	"github.com/attic-labs/noms/go/types"
+	"github.com/juju/errors"
 	flag "github.com/juju/gnuflag"
 )
 
@@ -204,23 +205,26 @@ func (spec datasetSpec) Value() (datas.Database, types.Value, error) {
 		return nil, nil, err
 	}
 
-	commit, ok := dataset.MaybeHead()
-	if !ok {
+	commit, err := dataset.Head()
+	if err != nil {
 		dataset.Database().Close()
-		return nil, nil, fmt.Errorf("No head value for dataset: %s", spec.DatasetName)
+		return nil, nil, errors.Annotatef(err, "No head value for dataset %q", spec.DatasetName)
 	}
 
 	return dataset.Database(), commit, nil
 }
 
-func (spec pathSpec) Value() (db datas.Database, val types.Value, err error) {
-	db, err = spec.DbSpec.Database()
+func (spec pathSpec) Value() (datas.Database, types.Value, error) {
+	db, err := spec.DbSpec.Database()
 	if err != nil {
-		return
+		return nil, nil, errors.Trace(err)
 	}
 
-	val = spec.Path.Resolve(db)
-	return
+	val, err := spec.Path.Resolve(db)
+	if err != nil {
+		return nil, nil, errors.Trace(err)
+	}
+	return db, val, nil
 }
 
 func RegisterDatabaseFlags(flags *flag.FlagSet) {

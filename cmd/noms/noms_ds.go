@@ -11,6 +11,7 @@ import (
 	"github.com/attic-labs/noms/go/d"
 	"github.com/attic-labs/noms/go/spec"
 	"github.com/attic-labs/noms/go/types"
+	"github.com/juju/errors"
 	flag "github.com/juju/gnuflag"
 )
 
@@ -35,9 +36,9 @@ func runDs(args []string) int {
 		set, err := spec.GetDataset(toDelete)
 		d.CheckError(err)
 
-		oldCommitRef, errBool := set.MaybeHeadRef()
-		if !errBool {
-			d.CheckError(fmt.Errorf("Dataset %v not found", set.ID()))
+		oldCommitRef, err := set.HeadRef()
+		if err != nil {
+			d.CheckError(errors.Annotatef(err, "Dataset %v", set.ID()))
 		}
 
 		store, err := set.Database().Delete(set.ID())

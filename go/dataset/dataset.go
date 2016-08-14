@@ -7,6 +7,8 @@ package dataset
 import (
 	"regexp"
 
+	"github.com/juju/errors"
+
 	"github.com/attic-labs/noms/go/d"
 	"github.com/attic-labs/noms/go/datas"
 	"github.com/attic-labs/noms/go/types"
@@ -34,42 +36,22 @@ func (ds *Dataset) ID() string {
 	return ds.id
 }
 
-// MaybeHead returns the current Head Commit of this Dataset, which contains the current root of the Dataset's value tree, if available. If not, it returns a new Commit and 'false'.
-func (ds *Dataset) MaybeHead() (types.Struct, bool) {
-	return ds.Database().MaybeHead(ds.id)
-}
-
-func (ds *Dataset) MaybeHeadRef() (types.Ref, bool) {
-	return ds.Database().MaybeHeadRef(ds.id)
-}
-
 // Head returns the current head Commit, which contains the current root of the Dataset's value tree.
-func (ds *Dataset) Head() types.Struct {
-	c, ok := ds.MaybeHead()
-	d.Chk.True(ok, "Dataset \"%s\" does not exist", ds.id)
-	return c
+func (ds *Dataset) Head() (types.Struct, error) {
+	return ds.Database().Head(ds.id)
 }
 
-func (ds *Dataset) HeadRef() types.Ref {
-	r, ok := ds.MaybeHeadRef()
-	d.Chk.True(ok, "Dataset \"%s\" does not exist", ds.id)
-	return r
+func (ds *Dataset) HeadRef() (types.Ref, error) {
+	return ds.Database().HeadRef(ds.id)
 }
 
 // HeadValue returns the Value field of the current head Commit.
-func (ds *Dataset) HeadValue() types.Value {
-	c := ds.Head()
-	return c.Get(datas.ValueField)
-}
-
-// MaybeHeadValue returns the Value field of the current head Commit, if avaliable. If not it
-// returns nil and 'false'.
-func (ds *Dataset) MaybeHeadValue() (types.Value, bool) {
-	c, ok := ds.Database().MaybeHead(ds.id)
-	if !ok {
-		return nil, false
+func (ds *Dataset) HeadValue() (types.Value, error) {
+	c, err := ds.Head()
+	if err != nil {
+		return nil, errors.Trace(err)
 	}
-	return c.Get(datas.ValueField), true
+	return c.Get(datas.ValueField), nil
 }
 
 // CommitValue updates the commit that a dataset points at. The new Commit struct is constructed using v and the current Head.
@@ -86,9 +68,11 @@ func (ds *Dataset) Commit(v types.Value, opts CommitOptions) (Dataset, error) {
 	parents := opts.Parents
 	if (parents == types.Set{}) {
 		parents = types.NewSet()
-		if headRef, ok := ds.MaybeHeadRef(); ok {
-			parents = parents.Insert(headRef)
+		headRef, err := ds.HeadRef()
+		if err != nil {
+			return Dataset{}, errors.Trace(err)
 		}
+		parents = parents.Insert(headRef)
 	}
 
 	meta := opts.Meta
@@ -103,21 +87,30 @@ func (ds *Dataset) Commit(v types.Value, opts CommitOptions) (Dataset, error) {
 }
 
 // Pull objects that descend from sourceRef in srcDB into sinkDB, using at most the given degree of concurrency. Progress will be reported over progressCh as the algorithm works. Objects that are already present in ds will not be pulled over.
-func (ds *Dataset) Pull(sourceDB datas.Database, sourceRef types.Ref, concurrency int, progressCh chan datas.PullProgress) {
+func (ds *Dataset) Pull(sourceDB datas.Database, sourceRef types.Ref, concurrency int, progressCh chan datas.PullProgress) error {
 	sinkHeadRef := types.Ref{}
-	if currentHeadRef, ok := ds.MaybeHeadRef(); ok {
+	currentHeadRef, err := ds.HeadRef()
+	if errors.IsNotFound(err) {
 		sinkHeadRef = currentHeadRef
+	} else if err != nil {
+		return errors.Trace(err)
 	}
 	datas.Pull(sourceDB, ds.Database(), sourceRef, sinkHeadRef, concurrency, progressCh)
+	return nil
 }
 
 // FastForward takes a types.Ref to a Commit object and makes it the new Head of ds iff it is a descendant of the current Head. Intended to be used e.g. after a call to Pull(). If the update cannot be performed, e.g., because another process moved the current Head out from under you, err will be non-nil. The newest snapshot of the Dataset is always returned, so the caller an easily retry using the latest.
 func (ds *Dataset) FastForward(newHeadRef types.Ref) (sink Dataset, err error) {
 	sink = *ds
-	if currentHeadRef, ok := sink.MaybeHeadRef(); ok && newHeadRef == currentHeadRef {
-		return
-	} else if newHeadRef.Height() <= currentHeadRef.Height() {
-		return sink, datas.ErrMergeNeeded
+	currentHeadRef, err := sink.HeadRef()
+	if err == nil {
+		if newHeadRef == currentHeadRef {
+			return
+		} else if newHeadRef.Height() <= currentHeadRef.Height() {
+			return sink, datas.ErrMergeNeeded
+		}
+	} else if !errors.IsNotFound(err) {
+		return Dataset{}, errors.Trace(err)
 	}
 
 	for err = datas.ErrOptimisticLockFailed; err == datas.ErrOptimisticLockFailed; sink, err = sink.commitNewHead(newHeadRef) {
@@ -128,8 +121,13 @@ func (ds *Dataset) FastForward(newHeadRef types.Ref) (sink Dataset, err error) {
 // SetHead takes a types.Ref to a Commit object and makes it the new Head of ds. Intended to be used e.g. when rewinding in ds' Commit history. If the update cannot be performed, e.g., because the state of ds.Database() changed out from under you, err will be non-nil. The newest snapshot of the Dataset is always returned, so the caller an easily retry using the latest.
 func (ds *Dataset) SetHead(newHeadRef types.Ref) (sink Dataset, err error) {
 	sink = *ds
-	if currentHeadRef, ok := sink.MaybeHeadRef(); ok && newHeadRef == currentHeadRef {
-		return
+	currentHeadRef, err := sink.HeadRef()
+	if err == nil {
+		if newHeadRef == currentHeadRef {
+			return
+		}
+	} else if !errors.IsNotFound(err) {
+		return Dataset{}, errors.Trace(err)
 	}
 
 	commit := sink.validateRefAsCommit(newHeadRef)

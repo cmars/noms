@@ -18,17 +18,11 @@ type Database interface {
 	types.ValueReadWriter
 	io.Closer
 
-	// MaybeHead returns the current Head Commit of this Database, which contains the current root of the Database's value tree, if available. If not, it returns a new Commit and 'false'.
-	MaybeHead(datasetID string) (types.Struct, bool)
-
-	// MaybeHeadRef returns the types.Ref of the Head Commit of this Database, and true, if available. If not, it returns an invalid types.Ref and false.
-	MaybeHeadRef(datasetID string) (types.Ref, bool)
-
 	// Head returns the current head Commit, which contains the current root of the Database's value tree.
-	Head(datasetID string) types.Struct
+	Head(datasetID string) (types.Struct, error)
 
 	// HeadRef returns the ref of the current head Commit. See Head(datasetID).
-	HeadRef(datasetID string) types.Ref
+	HeadRef(datasetID string) (types.Ref, error)
 
 	// Datasets returns the root of the database which is a MapOfStringToRefOfCommit where string is a datasetID.
 	Datasets() types.Map
